@@ -42,7 +42,7 @@ private:
     static void* manager(void* arg);
 
     // 结束指定线程
-    static void closeThread(pthread_t tid);
+    static void closeThread();
     // 将指定线程从线程组中移除
     static void removeThread(ThreadPool*, pthread_t);
 

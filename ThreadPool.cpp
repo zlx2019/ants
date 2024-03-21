@@ -179,7 +179,7 @@ void* ThreadPool::worker(void* arg) {
         if (pool->close){
             pool->totalThreadNum--;
             pthread_mutex_unlock(&pool->mutex);
-            closeThread(tid); // 结束线程
+            closeThread(); // 结束线程
         }
         // 获取任务
         Task* task = pool->tasks->getTask();
@@ -240,7 +240,7 @@ void ThreadPool::removeThread(ThreadPool* pool, pthread_t tid) {
             break;
         }
     }
-    closeThread(tid);
+    closeThread();
 }
 
 /**
@@ -248,7 +248,7 @@ void ThreadPool::removeThread(ThreadPool* pool, pthread_t tid) {
  *
  * @param tid 要结束的线程id
  */
-void ThreadPool::closeThread(pthread_t tid) {
-    INFO("WorkThread-[%lu] close~",tid);
-    pthread_exit(tid);
+void ThreadPool::closeThread() {
+    INFO("WorkThread-[%lu] close~",pthread_self());
+    pthread_exit(NULL);
 }
