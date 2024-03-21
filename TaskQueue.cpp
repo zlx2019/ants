@@ -25,7 +25,10 @@ TaskQueue::TaskQueue(int capacity) {
  * 析构函数，释放队列的资源
  */
 TaskQueue::~TaskQueue() {
-    delete[] array;
+    if (array != nullptr){
+        delete[] array;
+        array = nullptr;
+    }
 }
 
 

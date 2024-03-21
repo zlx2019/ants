@@ -18,7 +18,7 @@ class TaskQueue {
     int tailIdx; // 尾部索引
 public:
     // 构造函数与析构函数
-    TaskQueue(int capacity);
+    explicit TaskQueue(int capacity);
     ~TaskQueue();
 
     // 向队列中添加一个任务

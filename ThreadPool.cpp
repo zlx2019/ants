@@ -25,32 +25,24 @@ ThreadPool::ThreadPool(int coreNum, int maxNum, int tasksMaxCap) {
     works = new pthread_t[coreThreadNum]{0x00};
 
     // 初始化同步器
-    pthread_mutex_init(&mutex,NULL);
-    pthread_mutex_init(&smallMutex, NULL);
-    pthread_cond_init(&producer, NULL);
-    pthread_cond_init(&consumer, NULL);
+    pthread_mutex_init(&mutex,nullptr);
+    pthread_mutex_init(&smallMutex, nullptr);
+    pthread_cond_init(&producer, nullptr);
+    pthread_cond_init(&consumer, nullptr);
     waitProducerNum = 0;
     waitConsumerNum = 0;
 
     // 创建并且运行工作线程组
     for (int i = 0; i < coreThreadNum; i++)
-        pthread_create(&works[i], NULL, worker, this);
+        pthread_create(&works[i], nullptr, worker, this);
     // 创建并且运行管理线程
-    pthread_create(&mgr, NULL, manager, this);
+    pthread_create(&mgr, nullptr, manager, this);
 }
 
 /**
  * 线程池析构函数，释放内存
  */
 ThreadPool::~ThreadPool() {
-    // 释放线程组
-    if (works){
-        delete[] works;
-    }
-    // 释放任务队列
-    if (tasks){
-        delete tasks;
-    }
 
 }
 
@@ -58,12 +50,15 @@ ThreadPool::~ThreadPool() {
  * 关闭线程池
  */
 void ThreadPool::shutdown() {
+    if (close){
+        return;
+    }
     pthread_mutex_lock(&mutex);
     close = true;
     pthread_mutex_unlock(&mutex);
 
     // 关闭管理线程
-    pthread_join(mgr, NULL);
+    pthread_join(mgr, nullptr);
 
     // 唤醒所有处于阻塞的生产者(如果有)
     for (int i = 0; i < waitProducerNum; i++) {
@@ -75,10 +70,12 @@ void ThreadPool::shutdown() {
     }
     // 等待目前还在执行任务中的工作线程
     for (int i = 0; i < maxThreadNum; i++) {
-        if (works[i] != 0x00){
-            pthread_join(works[i], NULL);
+        if (works[i] != 0){
+            pthread_join(works[i], nullptr);
         }
     }
+    delete[] works;
+    delete tasks;
     // 销毁同步器
     pthread_mutex_destroy(&mutex);
     pthread_mutex_destroy(&smallMutex);
@@ -124,7 +121,7 @@ void* ThreadPool::manager(void* arg) {
             for (int i = 0; i < maxThreads && incr < incrLimit; i++) {
                 // 在线程组中找到一个没有占用的空位
                 if (pool->works[i] == 0){
-                    pthread_create(&pool->works[i], NULL, worker, pool);
+                    pthread_create(&pool->works[i], nullptr, worker, pool);
                     incr++;
                     pthread_mutex_lock(&pool->mutex);
                     pool->totalThreadNum++;
@@ -148,7 +145,7 @@ void* ThreadPool::manager(void* arg) {
             }
         }
     }
-    return NULL;
+    return nullptr;
 }
 
 /**
@@ -255,5 +252,5 @@ void ThreadPool::removeThread(ThreadPool* pool, pthread_t tid) {
  */
 void ThreadPool::closeThread() {
     INFO("WorkThread-[%lu] close~",pthread_self());
-    pthread_exit(NULL);
+    pthread_exit(nullptr);
 }

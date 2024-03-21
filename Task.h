@@ -15,6 +15,7 @@ public:
     // 构造函数声明
     Task(Callback callback, void* arg);
     Task();
+    ~Task();
 
     // 获取任务回调函数
     Callback getCallback();
