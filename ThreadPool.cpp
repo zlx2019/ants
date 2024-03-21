@@ -43,14 +43,15 @@ ThreadPool::ThreadPool(int coreNum, int maxNum, int tasksMaxCap) {
  * 线程池析构函数，释放内存
  */
 ThreadPool::~ThreadPool() {
+    // 释放线程组
+    if (works){
+        delete[] works;
+    }
     // 释放任务队列
-    if (tasks) delete tasks;
-    if (works) delete[] works;
-    // 销毁同步器
-    pthread_mutex_destroy(&mutex);
-    pthread_mutex_destroy(&smallMutex);
-    pthread_cond_destroy(&producer);
-    pthread_cond_destroy(&consumer);
+    if (tasks){
+        delete tasks;
+    }
+
 }
 
 /**
@@ -78,7 +79,11 @@ void ThreadPool::shutdown() {
             pthread_join(works[i], NULL);
         }
     }
-    delete this;
+    // 销毁同步器
+    pthread_mutex_destroy(&mutex);
+    pthread_mutex_destroy(&smallMutex);
+    pthread_cond_destroy(&producer);
+    pthread_cond_destroy(&consumer);
 }
 
 /**
@@ -179,7 +184,7 @@ void* ThreadPool::worker(void* arg) {
         if (pool->close){
             pool->totalThreadNum--;
             pthread_mutex_unlock(&pool->mutex);
-            closeThread(tid); // 结束线程
+            closeThread(); // 结束线程
         }
         // 获取任务
         Task* task = pool->tasks->getTask();
@@ -240,7 +245,7 @@ void ThreadPool::removeThread(ThreadPool* pool, pthread_t tid) {
             break;
         }
     }
-    closeThread(tid);
+    closeThread();
 }
 
 /**
@@ -248,7 +253,7 @@ void ThreadPool::removeThread(ThreadPool* pool, pthread_t tid) {
  *
  * @param tid 要结束的线程id
  */
-void ThreadPool::closeThread(pthread_t tid) {
-    INFO("WorkThread-[%lu] close~",tid);
-    pthread_exit(tid);
+void ThreadPool::closeThread() {
+    INFO("WorkThread-[%lu] close~",pthread_self());
+    pthread_exit(NULL);
 }

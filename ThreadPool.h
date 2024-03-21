@@ -34,22 +34,21 @@ class ThreadPool {
     pthread_mutex_t smallMutex; // 轻量级互斥锁，用于同步修改 runThreadNum 属性，该属性的修改较为频繁
 
 private:
-    // 析构函数，释放资源
-    ~ThreadPool();
     // 工作线程执行函数
     static void* worker(void* arg);
     // 管理线程执行函数
     static void* manager(void* arg);
 
     // 结束指定线程
-    static void closeThread(pthread_t tid);
+    static void closeThread();
     // 将指定线程从线程组中移除
     static void removeThread(ThreadPool*, pthread_t);
 
 public:
     // 构造函数，初始化线程池
     ThreadPool(int coreNum, int maxNum, int tasksMaxCap);
-
+    // 析构函数，释放资源
+    ~ThreadPool();
     // 关闭线程池
     void shutdown();
     // 添加任务

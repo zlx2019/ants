@@ -19,5 +19,6 @@ int main() {
 
     std::this_thread::sleep_for(std::chrono::seconds(15));
     pool->shutdown();
+    delete pool;
     return 0;
 }
