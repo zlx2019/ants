@@ -1,5 +1,5 @@
-#ifndef THREAD_POOL_LOG_H
-#define THREAD_POOL_LOG_H
+#ifndef THREAD_POOL_LOG_HPP
+#define THREAD_POOL_LOG_HPP
 #include <stdio.h>
 
 /**

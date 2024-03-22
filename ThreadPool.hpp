@@ -1,7 +1,67 @@
-#include "ThreadPool.h"
-#include "Log.hpp"
+#pragma once
+#include <pthread.h>
 #include <chrono>
 #include <thread>
+#include "TaskQueue.hpp"
+#include "Log.hpp"
+
+/** ====================================================
+ * 线程池的声明和实现定义.
+ *
+ * ==================================================== */
+
+// 管理线程每次扩容或缩减工作线程的数量上限: 每轮最多扩容或缩减两个线程
+#define LIMIT 2
+
+/**
+ * 线程池
+ *  - tasks: 任务队列，用于存放生产者提交的任务
+ */
+template<class T>
+class ThreadPool {
+    TaskQueue<T>* tasks;    // 任务队列
+
+    pthread_t   mgr;        // 管理线程
+    pthread_t*  works;      // 工作线程组
+    bool        close;      // 线程池是否被关闭
+
+    int coreThreadNum;      // 线程池的核心线程数(正常情况下，池中需要存活的线程数量)
+    int maxThreadNum;       // 最大线程数
+    int runThreadNum;       // 当前正在运行中的线程数量
+    int totalThreadNum;     // 线程池中的线程总数. totalThreadNum >= coreThreadNum ||  totalThreadNum <= maxThreadNum || totalThreadNum == (runThreadNum + waitConsumerNum)
+    int deathThreadNum;     // 当前需要销毁的工作线程数，0表示当前不需要销毁任何工作线程。
+
+    pthread_cond_t producer; // 用于阻塞和唤醒生产者的条件变量
+    pthread_cond_t consumer; // 用于阻塞和唤醒消费者的条件变量
+    int waitProducerNum;     // 当前处于阻塞的生产者数量
+    int waitConsumerNum;     // 当前处于阻塞的消费者数量(也就是处于阻塞中的工作线程数量)
+
+    pthread_mutex_t mutex;      // 线程池全局互斥锁，主要用于同步全局状态和生产者和消费者。
+    pthread_mutex_t smallMutex; // 轻量级互斥锁，用于同步修改 runThreadNum 属性，该属性的修改较为频繁
+
+private:
+
+    // 工作线程执行函数
+    static void* worker(void* arg);
+    // 管理线程执行函数
+    static void* manager(void* arg);
+
+    // 结束指定线程
+    static void closeThread();
+    // 将指定线程从线程组中移除
+    static void removeThread(ThreadPool*, pthread_t);
+
+public:
+    // 构造函数，初始化线程池
+    ThreadPool(int coreNum, int maxNum, int tasksMaxCap);
+    // 析构函数，释放资源
+    ~ThreadPool();
+    // 关闭线程池
+    void shutdown();
+    // 添加任务
+    void addTask(Callback callback, void* arg);
+
+};
 
 
 /**
@@ -10,7 +70,8 @@
  * @param maxNum        最大线程数
  * @param tasksMaxCap   任务队列容量
  */
-ThreadPool::ThreadPool(int coreNum, int maxNum, int tasksMaxCap) {
+template<class T>
+ThreadPool<T>::ThreadPool(int coreNum, int maxNum, int tasksMaxCap) {
     // 初始化线程池基本属性
     coreThreadNum = coreNum;
     maxThreadNum = maxNum;
@@ -20,7 +81,7 @@ ThreadPool::ThreadPool(int coreNum, int maxNum, int tasksMaxCap) {
     close = false;
 
     // 初始化任务队列
-    tasks = new TaskQueue(tasksMaxCap);
+    tasks = new TaskQueue<T>(tasksMaxCap);
     // 初始化工作线程组
     works = new pthread_t[coreThreadNum]{nullptr};
 
@@ -42,23 +103,23 @@ ThreadPool::ThreadPool(int coreNum, int maxNum, int tasksMaxCap) {
 /**
  * 线程池析构函数，释放内存
  */
-ThreadPool::~ThreadPool() {
+template<class T>
+ThreadPool<T>::~ThreadPool() {
+    delete tasks;
+    delete[] works;
 }
 
 /**
  * 关闭线程池
  */
-void ThreadPool::shutdown() {
-    if (close){
-        return;
-    }
+template<class T>
+void ThreadPool<T>::shutdown() {
+    // 标识为已关闭状态
     pthread_mutex_lock(&mutex);
     close = true;
     pthread_mutex_unlock(&mutex);
-
     // 关闭管理线程
     pthread_join(mgr, nullptr);
-
     // 唤醒所有处于阻塞的生产者(如果有)
     for (int i = 0; i < waitProducerNum; i++) {
         pthread_cond_broadcast(&producer);
@@ -69,14 +130,10 @@ void ThreadPool::shutdown() {
     }
     // 等待目前还在执行任务中的工作线程
     for (int i = 0; i < maxThreadNum; i++) {
-        if (works[i] != 0){
+        if (works[i] != nullptr){
             pthread_join(works[i], nullptr);
         }
     }
-
-    // 释放任务队列、线程组内存
-    delete[] works;
-    delete tasks;
     // 销毁同步器
     pthread_mutex_destroy(&mutex);
     pthread_mutex_destroy(&smallMutex);
@@ -95,8 +152,9 @@ void ThreadPool::shutdown() {
  *
  * @param arg   线程池实例
  */
-void* ThreadPool::manager(void* arg) {
-    ThreadPool* pool = static_cast<ThreadPool*>(arg);
+template<class T>
+void* ThreadPool<T>::manager(void* arg) {
+    ThreadPool<T>* pool = static_cast<ThreadPool<T>*>(arg);
     int maxThreads = pool->maxThreadNum;
     int coreThreads = pool->coreThreadNum;
 
@@ -121,7 +179,7 @@ void* ThreadPool::manager(void* arg) {
             int incr = 0;
             for (int i = 0; i < maxThreads && incr < incrLimit; i++) {
                 // 在线程组中找到一个没有占用的空位
-                if (pool->works[i] == nullptr){
+                if (pool->works[i] == 0){
                     pthread_create(&pool->works[i], nullptr, worker, pool);
                     incr++;
                     pthread_mutex_lock(&pool->mutex);
@@ -153,11 +211,12 @@ void* ThreadPool::manager(void* arg) {
  * 工作线程的执行函数
  * @param arg   线程池实例
  */
-void* ThreadPool::worker(void* arg) {
+template<class T>
+void* ThreadPool<T>::worker(void* arg) {
     pthread_t tid = pthread_self();
     INFO("WorkThread-[%lu] running~", tid);
     // 将参数转换为线程池实例
-    ThreadPool* pool = static_cast<ThreadPool*>(arg);
+    ThreadPool<T>* pool = static_cast<ThreadPool<T>*>(arg);
 
     // 周而复始的处理任务...
     while (true){
@@ -185,7 +244,7 @@ void* ThreadPool::worker(void* arg) {
             closeThread(); // 结束线程
         }
         // 获取任务
-        Task* task = pool->tasks->getTask();
+        Task<T>* task = pool->tasks->getTask();
         // mark 是否需要唤醒生产者
         if (pool->waitProducerNum > 0){
             pthread_cond_signal(&pool->producer);
@@ -212,7 +271,8 @@ void* ThreadPool::worker(void* arg) {
  * @param callback  任务的回调函数
  * @param arg       函数的参数
  */
-void ThreadPool::addTask(Callback callback, void *arg) {
+template<class T>
+void ThreadPool<T>::addTask(Callback callback, void *arg) {
     pthread_mutex_lock(&mutex);
     while (!close && tasks->isFull()){
         // mark 任务队列已满，阻塞生产者
@@ -224,7 +284,8 @@ void ThreadPool::addTask(Callback callback, void *arg) {
         pthread_mutex_unlock(&mutex);
         return;
     }
-    tasks->addTask(Task(callback,arg));
+    // :mark 封装任务，并且添加到队列
+    tasks->addTask(new Task<T>(callback,arg));
     // :note 唤醒阻塞的消费者
     if (waitConsumerNum > 0){
         pthread_cond_signal(&consumer);
@@ -235,7 +296,8 @@ void ThreadPool::addTask(Callback callback, void *arg) {
 /**
  * 将指定线程从线程组中移除
  */
-void ThreadPool::removeThread(ThreadPool* pool, pthread_t tid) {
+template<class T>
+void ThreadPool<T>::removeThread(ThreadPool<T>* pool, pthread_t tid) {
     // 在线程组中找到当前线程，将其替换为0，表示空位
     for (int i = 0; i < pool->maxThreadNum; i++) {
         if (pool->works[i] == tid){
@@ -251,7 +313,9 @@ void ThreadPool::removeThread(ThreadPool* pool, pthread_t tid) {
  *
  * @param tid 要结束的线程id
  */
-void ThreadPool::closeThread() {
+template<class T>
+void ThreadPool<T>::closeThread() {
     INFO("WorkThread-[%lu] close~",pthread_self());
     pthread_exit(nullptr);
 }
+
