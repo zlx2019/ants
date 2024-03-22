@@ -12,6 +12,7 @@
 
 // 管理线程每次扩容或缩减工作线程的数量上限: 每轮最多扩容或缩减两个线程
 #define LIMIT 2
+#define EMPTY 0x00 // 表示一个线程组中的空位
 
 /**
  * 线程池
@@ -83,7 +84,7 @@ ThreadPool<T>::ThreadPool(int coreNum, int maxNum, int tasksMaxCap) {
     // 初始化任务队列
     tasks = new TaskQueue<T>(tasksMaxCap);
     // 初始化工作线程组
-    works = new pthread_t[coreThreadNum]{0x00};
+    works = new pthread_t[maxThreadNum]{EMPTY};
 
     // 初始化同步器
     pthread_mutex_init(&mutex,nullptr);
@@ -130,7 +131,7 @@ void ThreadPool<T>::shutdown() {
     }
     // 等待目前还在执行任务中的工作线程
     for (int i = 0; i < maxThreadNum; i++) {
-        if (works[i] != 0x00){
+        if (works[i] != EMPTY){
             pthread_join(works[i], nullptr);
         }
     }
@@ -301,7 +302,7 @@ void ThreadPool<T>::removeThread(ThreadPool<T>* pool, pthread_t tid) {
     // 在线程组中找到当前线程，将其替换为0，表示空位
     for (int i = 0; i < pool->maxThreadNum; i++) {
         if (pool->works[i] == tid){
-            pool->works[i] = 0x00;
+            pool->works[i] = EMPTY;
             break;
         }
     }
